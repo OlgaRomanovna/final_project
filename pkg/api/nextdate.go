@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -21,20 +22,17 @@ func NextDateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, передан ли параметр now (для тестов)
 	nowStr := r.URL.Query().Get("now")
 	var now time.Time
 	var err error
 
 	if nowStr != "" {
-		// Если передан, парсим его
 		now, err = time.Parse("20060102", nowStr)
 		if err != nil {
 			http.Error(w, "invalid now format", http.StatusBadRequest)
 			return
 		}
 	} else {
-		// Иначе используем текущее время
 		now = time.Now()
 	}
 
@@ -45,5 +43,7 @@ func NextDateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
-	w.Write([]byte(next))
+	if _, err := w.Write([]byte(next)); err != nil {
+		log.Printf("ошибка записи ответа: %v", err)
+	}
 }

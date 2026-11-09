@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+// ErrNotFound возвращается, когда запись не найдена в БД
+var ErrNotFound = errors.New("запись не найдена")
+
 // Task представляет задачу планировщика
 type Task struct {
 	ID      string `json:"id"`
@@ -71,7 +74,7 @@ func GetTask(id string) (*Task, error) {
 	err := DB.QueryRow(query, id).Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("задача не найдена")
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("ошибка получения задачи: %w", err)
 	}
@@ -79,7 +82,6 @@ func GetTask(id string) (*Task, error) {
 	return &task, nil
 }
 
-// UpdateTask обновляет существующую задачу
 func UpdateTask(task *Task) error {
 	query := `UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat = ? WHERE id = ?`
 
@@ -94,13 +96,12 @@ func UpdateTask(task *Task) error {
 	}
 
 	if count == 0 {
-		return fmt.Errorf("задача не найдена")
+		return ErrNotFound
 	}
 
 	return nil
 }
 
-// DeleteTask удаляет задачу по её идентификатору
 func DeleteTask(id string) error {
 	query := `DELETE FROM scheduler WHERE id = ?`
 	res, err := DB.Exec(query, id)
@@ -114,13 +115,12 @@ func DeleteTask(id string) error {
 	}
 
 	if count == 0 {
-		return fmt.Errorf("задача не найдена")
+		return ErrNotFound
 	}
 
 	return nil
 }
 
-// UpdateDate обновляет только дату выполнения задачи
 func UpdateDate(nextDate string, id string) error {
 	query := `UPDATE scheduler SET date = ? WHERE id = ?`
 	res, err := DB.Exec(query, nextDate, id)
@@ -134,7 +134,7 @@ func UpdateDate(nextDate string, id string) error {
 	}
 
 	if count == 0 {
-		return fmt.Errorf("задача не найдена")
+		return ErrNotFound
 	}
 
 	return nil

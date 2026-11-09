@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -39,23 +41,29 @@ func TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Получаем текущие параметры задачи
 	task, err := db.GetTask(id)
 	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, db.ErrNotFound) {
+			writeJSONError(w, http.StatusNotFound, "задача не найдена")
+		} else {
+			log.Printf("ошибка БД при получении задачи %s: %v", id, err)
+			writeJSONError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		}
 		return
 	}
 
-	// 2. Логика в зависимости от наличия правила повторения
 	if task.Repeat == "" {
-		// Одноразовая задача: удаляем
 		err = db.DeleteTask(id)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			if errors.Is(err, db.ErrNotFound) {
+				writeJSONError(w, http.StatusNotFound, "задача не найдена")
+			} else {
+				log.Printf("ошибка БД при удалении задачи %s: %v", id, err)
+				writeJSONError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+			}
 			return
 		}
 	} else {
-		// Периодическая задача: вычисляем новую дату и обновляем
 		now := time.Now()
 		now = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
@@ -67,12 +75,16 @@ func TaskDoneHandler(w http.ResponseWriter, r *http.Request) {
 
 		err = db.UpdateDate(nextDate, id)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			if errors.Is(err, db.ErrNotFound) {
+				writeJSONError(w, http.StatusNotFound, "задача не найдена")
+			} else {
+				log.Printf("ошибка БД при обновлении даты задачи %s: %v", id, err)
+				writeJSONError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+			}
 			return
 		}
 	}
 
-	// 3. Возвращаем пустой JSON объект {}
 	writeJSON(w, struct{}{})
 }
 
@@ -111,7 +123,12 @@ func getTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	task, err := db.GetTask(id)
 	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, db.ErrNotFound) {
+			writeJSONError(w, http.StatusNotFound, "задача не найдена")
+		} else {
+			log.Printf("ошибка БД при получении задачи %s: %v", id, err)
+			writeJSONError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		}
 		return
 	}
 
@@ -135,7 +152,6 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем и корректируем дату по тем же правилам, что и при создании
 	if err := checkAndFixDate(&task); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
@@ -143,7 +159,12 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := db.UpdateTask(&task)
 	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, db.ErrNotFound) {
+			writeJSONError(w, http.StatusNotFound, "задача не найдена")
+		} else {
+			log.Printf("ошибка БД при обновлении задачи %s: %v", task.ID, err)
+			writeJSONError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		}
 		return
 	}
 
@@ -160,7 +181,12 @@ func deleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := db.DeleteTask(id)
 	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, db.ErrNotFound) {
+			writeJSONError(w, http.StatusNotFound, "задача не найдена")
+		} else {
+			log.Printf("ошибка БД при удалении задачи %s: %v", id, err)
+			writeJSONError(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		}
 		return
 	}
 
@@ -202,11 +228,15 @@ func checkAndFixDate(task *db.Task) error {
 
 func writeJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("ошибка сериализации JSON: %v", err)
+	}
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
+		log.Printf("ошибка сериализации JSON ошибки: %v", err)
+	}
 }
