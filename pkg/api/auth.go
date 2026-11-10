@@ -5,30 +5,37 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// SignInRequest структура для запроса входа
+// Настройки аутентификации, заполняются один раз при старте через Init
+var (
+	authPassword string
+	authPassHash string
+)
+
+// Init сохраняет конфигурацию аутентификации.
+func Init(password string) {
+	authPassword = password
+	authPassHash = hashPassword(password)
+}
+
 type SignInRequest struct {
 	Password string `json:"password"`
 }
 
-// SignInResponse структура для ответа с токеном
 type SignInResponse struct {
 	Token string `json:"token,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
-// hashPassword создает SHA256 хэш пароля
 func hashPassword(password string) string {
 	hash := sha256.Sum256([]byte(password))
 	return hex.EncodeToString(hash[:])
 }
 
-// SignInHandler обрабатывает POST /api/signin
 func SignInHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "метод не разрешен")
@@ -41,23 +48,18 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	envPassword := os.Getenv("TODO_PASSWORD")
-	if envPassword == "" || req.Password != envPassword {
+	if authPassword == "" || req.Password != authPassword {
 		writeJSONError(w, http.StatusUnauthorized, "Неверный пароль")
 		return
 	}
 
-	// Создаем JWT токен
-	passHash := hashPassword(envPassword)
 	claims := jwt.MapClaims{
-		"pass_hash": passHash,
-		"exp":       time.Now().Add(8 * time.Hour).Unix(), // Токен живет 8 часов
+		"pass_hash": authPassHash,
+		"exp":       time.Now().Add(8 * time.Hour).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	// В качестве секретного ключа используем хэш пароля.
-	// Если пароль в ENV изменится, старые токены станут невалидными.
-	tokenString, err := token.SignedString([]byte(passHash))
+	tokenString, err := token.SignedString([]byte(authPassHash))
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "ошибка генерации токена")
 		return
@@ -66,13 +68,10 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, SignInResponse{Token: tokenString})
 }
 
-// AuthMiddleware проверяет наличие и валидность JWT токена
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		envPassword := os.Getenv("TODO_PASSWORD")
-
-		// Если пароль не задан, аутентификация не требуется
-		if envPassword == "" {
+		// Если пароль не задан, аутентификация отключена
+		if authPassword == "" {
 			next(w, r)
 			return
 		}
@@ -83,26 +82,21 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		passHash := hashPassword(envPassword)
-
-		// Парсим и валидируем токен
 		token, err := jwt.Parse(cookie.Value, func(token *jwt.Token) (interface{}, error) {
-			return []byte(passHash), nil
-		})
+			return []byte(authPassHash), nil
+		}, jwt.WithValidMethods([]string{"HS256"}))
 
 		if err != nil || !token.Valid {
 			http.Error(w, "Authentication required", http.StatusUnauthorized)
 			return
 		}
 
-		// Дополнительная проверка: совпадает ли хэш внутри токена с текущим хэшем пароля
 		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok || claims["pass_hash"] != passHash {
+		if !ok || claims["pass_hash"] != authPassHash {
 			http.Error(w, "Authentication required", http.StatusUnauthorized)
 			return
 		}
 
-		// Если все ок, передаем управление следующему обработчику
 		next(w, r)
 	}
 }

@@ -10,25 +10,28 @@ const (
 	DefaultWebDir = "./web"
 )
 
-// Config хранит настройки приложения
 type Config struct {
-	Port   int
-	WebDir string
+	Port     int
+	WebDir   string
+	DBFile   string
+	Password string
 }
 
-// LoadConfig загружает конфигурацию из переменных окружения или использует значения по умолчанию
 func LoadConfig() Config {
 	port := DefaultPort
+	if p, err := strconv.Atoi(os.Getenv("TODO_PORT")); err == nil {
+		port = p
+	}
 
-	// Проверяем, задана ли переменная окружения TODO_PORT
-	if portEnv := os.Getenv("TODO_PORT"); portEnv != "" {
-		if p, err := strconv.Atoi(portEnv); err == nil {
-			port = p
-		}
+	dbFile := os.Getenv("TODO_DBFILE")
+	if dbFile == "" {
+		dbFile = "scheduler.db"
 	}
 
 	return Config{
-		Port:   port,
-		WebDir: DefaultWebDir,
+		Port:     port,
+		WebDir:   DefaultWebDir,
+		DBFile:   dbFile,
+		Password: os.Getenv("TODO_PASSWORD"),
 	}
 }
